@@ -1,0 +1,26 @@
+Body start
+Body complete
+Received JSON: {"path":[{"x":30,"y":38},{"x":31,"y":43},{"x":33,"y":63},{"x":34,"y":97},{"x":39,"y":135},{"x":41,"y":155},{"x":47,"y":177},{"x":55,"y":219},{"x":60,"y":241},{"x":66,"y":262},{"x":68,"y":267},{"x":68,"y":270}]}
+Moving along path...
+i
+0
+Moving to point: 30.00, 38.00
+angleDiff
+0.00
+distance
+48.41
+RightMotorSteps
+226
+LeftMotorSteps
+226
+CORRUPT HEAP: Bad head at 0x3ffd6634. Expected 0xabba1234 got 0x00000000
+
+assert failed: multi_heap_free multi_heap_poisoning.c:276 (head != NULL)
+
+
+Backtrace: 0x4008245d:0x3ffd53a0 0x4008bf91:0x3ffd53c0 0x400917de:0x3ffd53e0 0x40090969:0x3ffd5510 0x40083442:0x3ffd5530 0x4009181d:0x3ffd5550 0x400d2929:0x3ffd5570 0x4016a01b:0x3ffd5590 0x400d29fd:0x3ffd55b0 0x400d39e5:0x3ffd55d0 0x4008e95e:0x3ffd5660
+
+
+
+
+ELF file SHA256: edae534767a4e36a
