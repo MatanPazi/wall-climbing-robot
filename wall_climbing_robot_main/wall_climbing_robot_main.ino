@@ -17,24 +17,23 @@ AccelStepper stepperRight(motorInterfaceType, stepPinRight, dirPinRight);
 AccelStepper stepperLeft(motorInterfaceType, stepPinLeft, dirPinLeft);
 Servo myservo;
 
-const float wheelDiameter = 22.5; // in mm
+const float wheelDiameter = 22.5;  // in mm
 const int stepsPerRevolution = 23; // Assuming each motor has 23 steps per revolution
 const float gearReduction = 14.4;
 const float effectiveStepsPerRevolution = stepsPerRevolution * gearReduction;
 const float stepsPerMili = (effectiveStepsPerRevolution) / (3.14159 * wheelDiameter);
-const float Kturn = 1.00; // Empirical constant to adjust turn radius
-const float turnRadius = 96.5 * Kturn; // in mm adjusted by Kturn
+const float Kturn = 1.00;                                    // Empirical constant to adjust turn radius
+const float turnRadius = 96.5 * Kturn;                       // in mm adjusted by Kturn
 const float turningCircumference = 2 * 3.14159 * turnRadius; // in mm
 float RightMotorStepsRemainder = 0.0;
 float LeftMotorStepsRemainder = 0.0;
-float angleDiff = 0.0;
-float XPrev = 0;
-float YPrev = 0;
-float XPrevPrev = 0;
-float YPrevPrev = 0;
-size_t i = 0;
 int Rightpresteps = 0;
 int Leftpresteps = 0;
+
+struct PathPoint {
+  float x;
+  float y;
+};
 
 const int undraw = 30;
 const int draw = 70;
@@ -44,6 +43,7 @@ AsyncWebServer server(80);
 QueueHandle_t pathQueue;
 
 const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML>
 <!DOCTYPE HTML>
 <html>
 <head>
@@ -58,12 +58,20 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
   <canvas id="canvas" width="1000" height="1000"></canvas>
   <button id="sendPathButton">Send Path</button>
+  <button id="clearButton">Clear</button>
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const sendPathButton = document.getElementById('sendPathButton');
+    const clearButton = document.getElementById('clearButton');
     let drawing = false;
     let path = [];
+
+    // Rectangle properties
+    const rectWidth = 230;
+    const rectHeight = 150;
+    const rectX = (canvas.width - rectWidth) / 2; // Centered horizontally
+    const rectY = canvas.height - rectHeight; // Bottom edge on bottom line of canvas
 
     // Mouse events
     canvas.addEventListener('mousedown', (e) => {
@@ -95,6 +103,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     sendPathButton.addEventListener('click', () => {
       console.log("Sending path..."); // Log to browser console
+      console.log(JSON.stringify({ path })); // Log to browser console
       fetch('/path', {
         method: 'POST',
         headers: {
@@ -104,6 +113,16 @@ const char index_html[] PROGMEM = R"rawliteral(
       })
       .then(response => response.text())
       .then(data => console.log(data)); // Log response from server to browser console
+    });
+
+    clearButton.addEventListener('click', () => {
+      path = [];
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.restore();
+      drawRectangle(); // Draw the rectangle again after clearing the canvas
+      ctx.beginPath();
     });
 
     function startDrawing(clientX, clientY) {
@@ -121,12 +140,22 @@ const char index_html[] PROGMEM = R"rawliteral(
       ctx.stroke();
       path.push({ x: x, y: y });
     }
+
+    function drawRectangle() {
+      ctx.fillStyle = 'blue';
+      ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+    }
+
+    // Draw the initial rectangle
+    drawRectangle();
   </script>
 </body>
 </html>
+
 )rawliteral";
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   Serial.println("Setup started");
 
@@ -145,42 +174,43 @@ void setup() {
   myservo.attach(servoPin);
 
   // Create the path queue
-  pathQueue = xQueueCreate(10, sizeof(DynamicJsonDocument));
+  pathQueue = xQueueCreate(10, sizeof(DynamicJsonDocument)); //not sure what is queue length
 
   // Create tasks
   xTaskCreatePinnedToCore(
-    serverTask,   /* Task function. */
-    "serverTask", /* String with name of task. */
-    8192,         /* Stack size in bytes. */
-    NULL,         /* Parameter passed as input of the task */
-    2,            /* Priority of the task. */
-    NULL,         /* Task handle. */
-    1);           /* Core where the task should run */
+      serverTask,   /* Task function. */
+      "serverTask", /* String with name of task. */
+      8192,         /* Stack size in bytes. */
+      NULL,         /* Parameter passed as input of the task */
+      1,            /* Priority of the task. */
+      NULL,         /* Task handle. */
+      1);           /* Core where the task should run */
 
   xTaskCreatePinnedToCore(
-    motorTask,    /* Task function. */
-    "motorTask",  /* String with name of task. */
-    8192,         /* Stack size in bytes. */
-    NULL,         /* Parameter passed as input of the task */
-    1,            /* Priority of the task. */
-    NULL,         /* Task handle. */
-    0);           /* Core where the task should run */
+      motorTask,   /* Task function. */
+      "motorTask", /* String with name of task. */
+      8192,        /* Stack size in bytes. */
+      NULL,        /* Parameter passed as input of the task */
+      2,           /* Priority of the task. */
+      NULL,        /* Task handle. */
+      0);          /* Core where the task should run */
 
   Serial.println("Setup complete");
 }
 
-void loop() {
-  // Main loop is empty because tasks are running
-}
+void loop() {}
 
-void serverTask(void * parameter) {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", index_html);
-  });
+void serverTask(void *parameter)
+{
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send_P(200, "text/html", index_html); });
 
-  server.on("/path", HTTP_POST, [](AsyncWebServerRequest *request){
-    // This handler won't be called until request->send() is called within the body handler
-  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  server.on("/path", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+              // This handler won't be called until request->send() is called within the body handler
+            },
+            NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+            {
     if (!index) {
       Serial.println("Body start");
       request->_tempObject = malloc(total + 1);
@@ -206,9 +236,10 @@ void serverTask(void * parameter) {
       Serial.print("Received JSON: ");
       Serial.println(json);
 
-      DynamicJsonDocument doc(total * 2);
+      DynamicJsonDocument doc(total); // not sure why doc should be total size
 
       DeserializationError error = deserializeJson(doc, json);
+     
       if (error) {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
@@ -217,6 +248,8 @@ void serverTask(void * parameter) {
       }
 
       JsonArray path = doc["path"];
+      Serial.println("path size");
+      Serial.println(path.size());
       if (xQueueSend(pathQueue, &doc, portMAX_DELAY) != pdPASS) {
         Serial.println("Failed to send to queue");
         request->send(500, "text/plain", "Queue send failed");
@@ -224,59 +257,91 @@ void serverTask(void * parameter) {
       }
 
       request->send(200, "text/plain", "Path received");
-    }
-  });
+    } });
 
   server.begin();
   Serial.println("Server task running");
 
-  for (;;) {
+  for (;;)
+  {
     yield();
     delay(1);
   }
 }
 
-void motorTask(void * parameter) {
+void motorTask(void *parameter)
+{
   Serial.println("Motor task running");
 
-  for (;;) {
+  for (;;)
+  {
     DynamicJsonDocument doc(2048);
-    if (xQueueReceive(pathQueue, &doc, portMAX_DELAY) == pdPASS) {
+    Serial.println("nonon1"); // debugger
+    if (xQueueReceive(pathQueue, &doc, portMAX_DELAY) == pdPASS)
+    {
+      Serial.println("nonon2"); // debugger
       JsonArray path = doc["path"];
       moveRobotAlongPath(path);
     }
+
     yield();
     delay(1);
   }
 }
 
 void moveRobotAlongPath(JsonArray path) {
-  Serial.println("Moving along path...");
+  // Determine the size of the path array
+  size_t pathSize = path.size();
 
-  for (i = 0; i < path.size(); i++) { // Initialize i inside the loop
-    Serial.println("i");
+  // Allocate memory for the C++ array
+  PathPoint* pathArray = new PathPoint[pathSize];
+
+  // Convert JsonArray to C++ array
+  for (size_t i = 0; i < pathSize; i++) {
+    pathArray[i].x = path[i]["x"].as<float>();
+    pathArray[i].y = path[i]["y"].as<float>();
+  }
+
+  // Now you can use pathArray instead of path
+  int i;
+  float XPrev = 0;
+  float YPrev = 0;
+  float XPrevPrev = 0;
+  float YPrevPrev = 0;
+  float angleDiff = 0;
+  float angle0 = 0;
+  float distance = 0;
+  angle0 = atan2((pathArray[1].x-pathArray[0].x) , (-pathArray[1].y+pathArray[0].y)); // adding pi to rotate the axes
+
+  for (i = 1; i < pathSize; i=i+3) { // Initialize i inside the loop i=i+smooth factor
+    Serial.print("i: ");
     Serial.println(i);
-    float x = path[i]["x"];
-    float y = path[i]["y"];
+    float x = pathArray[i].x - pathArray[0].x; // centering x
+    float y = pathArray[i].y - pathArray[0].y; // centering y
+    
 
     Serial.print("Moving to point: ");
     Serial.print(x);
     Serial.print(", ");
     Serial.println(y);
-    if (i < 1) {
-      angleDiff = 0;
-    } else {
-      angleDiff = atan2(y - YPrev, x - XPrev) - atan2(YPrev - YPrevPrev, XPrev - XPrevPrev); // Angle from previous point to next one.
-    }
-    // Calculate distance to move 
-    float distance = sqrt(pow(x - XPrev, 2) + pow(y - XPrev, 2));
 
+    distance = sqrt(pow(x - XPrev, 2) + pow(y - YPrev, 2));
+
+    if(i==1)
+    {angleDiff = angle0;}
+    else{
+    angleDiff = atan2(x - XPrev, -y + YPrev) - atan2(XPrev - XPrevPrev, -YPrev + YPrevPrev) ; 
+    }
+    Serial.print("Y Prev: ");      Serial.print(YPrev); 
+          /*Serial.print("Y: ");      Serial.print(y);      Serial.print("Y Prev: ");      Serial.print(YPrev);      Serial.print("YPrevPrev: ");      Serial.println(YPrevPrev);      Serial.print("X: ");      Serial.print(x);      Serial.print("X Prev: ");      Serial.print(XPrev);      Serial.print("XPrevPrev: ");      Serial.println(XPrevPrev); //debugger*/
+      
     // Move in arc
     Serial.println("angleDiff");
     Serial.println(angleDiff);
     Serial.println("distance");
     Serial.println(distance);
     moveInArc(distance, angleDiff);
+    //at the end of move in arc there shouldn't be an angle diff
 
     // Add yield to avoid watchdog timer resets
     yield();
@@ -287,10 +352,15 @@ void moveRobotAlongPath(JsonArray path) {
     YPrevPrev = YPrev;
     XPrev = x;
     YPrev = y;
+    /*Serial.print("Y: ");    Serial.print(y);    Serial.print("Y Prev: ");    Serial.print(YPrev);    Serial.print("YPrevPrev: ");    Serial.println(YPrevPrev);    Serial.print("X: ");    Serial.print(x);    Serial.print("X Prev: ");    Serial.print(XPrev);    Serial.print("XPrevPrev: ");    Serial.println(XPrevPrev); //debugger*/
   }
+
+  // Free the allocated memory
+  delete[] pathArray;
 }
 
-void moveInArc(float distance, float angleDiff) {
+void moveInArc(float distance, float angleDiff)
+{
   // Calculate steps for each motor
   int RightMotorSteps = (int)(stepsPerMili * (distance - turnRadius * angleDiff));
   RightMotorStepsRemainder += (stepsPerMili * (distance - turnRadius * angleDiff)) - RightMotorSteps;
@@ -300,19 +370,23 @@ void moveInArc(float distance, float angleDiff) {
 
   // Move both motors
   stepperRight.moveTo(RightMotorSteps + Rightpresteps);
-  stepperLeft.moveTo(LeftMotorSteps + Leftpresteps);
-  Serial.println("RightMotorSteps");
-  Serial.println(RightMotorSteps);
+  stepperLeft.moveTo(-LeftMotorSteps - Leftpresteps);
+  
+  Serial.println("RightMotorSteps"); //debugger
+  Serial.println(RightMotorSteps + Rightpresteps);
   Serial.println("LeftMotorSteps");
-  Serial.println(LeftMotorSteps);
+  Serial.println(-LeftMotorSteps - Leftpresteps);
+  
   Rightpresteps = RightMotorSteps + Rightpresteps;
   Leftpresteps = LeftMotorSteps + Leftpresteps;
+  
+  //Serial.print("Rightpresteps: ");  //Serial.print(Rightpresteps);  //Serial.print(", Leftpresteps: ");  //Serial.println(Leftpresteps);
 
-  while (stepperRight.distanceToGo() != 0 || stepperLeft.distanceToGo() != 0) {
+  while (stepperRight.distanceToGo() != 0 || stepperLeft.distanceToGo() != 0)
+  {
     stepperRight.run();
     stepperLeft.run();
-    //Serial.println(stepperRight.distanceToGo());
-    yield();
+    //Serial.println(stepperRight.distanceToGo()); //debugger    //Serial.println(stepperLeft.distanceToGo());    yield();
     delay(1);
   }
 }
