@@ -1,4 +1,3 @@
-//kaki
 #include <AccelStepper.h>
 #include <ESP32Servo.h>
 #include <WiFi.h>
@@ -204,18 +203,22 @@ void loop() {}
 void serverTask(void *parameter)
 {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", index_html); });
+  {
+    request->send_P(200, "text/html", index_html);
+  });
 
   server.on("/path", HTTP_POST, [](AsyncWebServerRequest *request)
-            {
-              // This handler won't be called until request->send() is called within the body handler
-            },
-            NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
-            {
-    if (!index) {
+  {
+    // This handler won't be called until request->send() is called within the body handler
+  },
+  NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+  {
+    if (!index)
+    {
       Serial.println("Body start");
       request->_tempObject = malloc(total + 1);
-      if (request->_tempObject == nullptr) {
+      if (request->_tempObject == nullptr)
+      {
         Serial.println("Failed to allocate memory");
         request->send(500, "text/plain", "Server memory allocation failed");
         return;
@@ -226,7 +229,8 @@ void serverTask(void *parameter)
     yield();
     delay(1);
 
-    if (index + len == total) {
+    if (index + len == total)
+    {
       ((uint8_t*)request->_tempObject)[total] = '\0';
       Serial.println("Body complete");
 
@@ -237,38 +241,43 @@ void serverTask(void *parameter)
       Serial.print("Received JSON: ");
       Serial.println(json);
 
-      DynamicJsonDocument doc(total); // not sure why doc should be total size
+      DynamicJsonDocument *doc = new DynamicJsonDocument(total); // Allocate on heap
 
-      DeserializationError error = deserializeJson(doc, json);
-     
-      if (error) {
+      DeserializationError error = deserializeJson(*doc, json);
+
+      if (error)
+      {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
+        delete doc; // Free the allocated memory
         request->send(400, "text/plain", "Invalid JSON");
         return;
       }
 
-      JsonArray path = doc["path"];
+      JsonArray path = (*doc)["path"];
       Serial.println("path size");
       Serial.println(path.size());
-      if (xQueueSend(pathQueue, &doc, portMAX_DELAY) != pdPASS) {
+      if (xQueueSend(pathQueue, &doc, portMAX_DELAY) != pdPASS)
+      {
         Serial.println("Failed to send to queue");
+        delete doc; // Free the allocated memory
         request->send(500, "text/plain", "Queue send failed");
         return;
       }
 
       request->send(200, "text/plain", "Path received");
-    } });
+    }
+  });
 
   server.begin();
   Serial.println("Server task running");
-
   for (;;)
   {
     yield();
     delay(1);
   }
 }
+
 
 void motorTask(void *parameter)
 {
@@ -276,13 +285,14 @@ void motorTask(void *parameter)
 
   for (;;)
   {
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument *doc;
     Serial.println("nonon1"); // debugger
     if (xQueueReceive(pathQueue, &doc, portMAX_DELAY) == pdPASS)
     {
       Serial.println("nonon2"); // debugger
-      JsonArray path = doc["path"];
+      JsonArray path = (*doc)["path"];
       moveRobotAlongPath(path);
+      delete doc; // Free the allocated memory
     }
 
     yield();
@@ -290,19 +300,25 @@ void motorTask(void *parameter)
   }
 }
 
+
 void moveRobotAlongPath(JsonArray path) {
   // Determine the size of the path array
   size_t pathSize = path.size();
-
+  
   // Allocate memory for the C++ array
   PathPoint* pathArray = new PathPoint[pathSize];
 
   // Convert JsonArray to C++ array
-  for (size_t i = 0; i < pathSize; i++) {
+  for (size_t i = 0; i < pathSize; i++) { 
+    
     pathArray[i].x = path[i]["x"].as<float>();
     pathArray[i].y = path[i]["y"].as<float>();
+    Serial.print(pathArray[i].x);
+    Serial.print(", ");
+    Serial.println(pathArray[i].y);
+    
   }
-
+  
   // Now you can use pathArray instead of path
   int i;
   float XPrev = 0;
@@ -314,7 +330,7 @@ void moveRobotAlongPath(JsonArray path) {
   float distance = 0;
   angle0 = atan2((pathArray[1].x-pathArray[0].x) , (-pathArray[1].y+pathArray[0].y)); // adding pi to rotate the axes
 
-  for (i = 1; i < pathSize; i=i+3) { // Initialize i inside the loop i=i+smooth factor
+  for (i = 1; i < pathSize; i=i+8) { // Initialize i inside the loop i=i+smooth factor
     Serial.print("i: ");
     Serial.println(i);
     float x = pathArray[i].x - pathArray[0].x; // centering x
