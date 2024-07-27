@@ -79,7 +79,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (drawing) draw(e.clientX, e.clientY);
+      if (drawing) draw(e.clientX, e.clientY, true);
     });
 
     canvas.addEventListener('mouseup', () => {
@@ -94,7 +94,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     canvas.addEventListener('touchmove', (e) => {
       const touch = e.touches[0];
-      if (drawing) draw(touch.clientX, touch.clientY);
+      if (drawing) draw(touch.clientX, touch.clientY, true);
     });
 
     canvas.addEventListener('touchend', () => {
@@ -130,15 +130,15 @@ const char index_html[] PROGMEM = R"rawliteral(
       const x = (clientX - canvas.offsetLeft); // Convert to mm
       const y = (clientY - canvas.offsetTop); // Convert to mm
       ctx.moveTo(x, y);
-      path.push({ x: x, y: y });
+      path.push({ x: x, y: y, isContinuous: false }); // Start of a new line
     }
 
-    function draw(clientX, clientY) {
+    function draw(clientX, clientY, isContinuous) {
       const x = (clientX - canvas.offsetLeft); // Convert to mm
       const y = (clientY - canvas.offsetTop); // Convert to mm
       ctx.lineTo(x, y);
       ctx.stroke();
-      path.push({ x: x, y: y });
+      path.push({ x: x, y: y, isContinuous: isContinuous });
     }
 
     function drawRectangle() {
