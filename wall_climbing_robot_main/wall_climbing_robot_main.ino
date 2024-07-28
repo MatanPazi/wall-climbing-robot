@@ -26,10 +26,11 @@ const float stepsPerMili = (effectiveStepsPerRevolution) / (3.14159 * wheelDiame
 const float Kturn = 1.00;                                    // Empirical constant to adjust turn radius
 const float turnRadius = 96.5 * Kturn;                       // in mm adjusted by Kturn
 const float turningCircumference = 2 * 3.14159 * turnRadius; // in mm
+const int smoothingVal = 8;
 float RightMotorStepsRemainder = 0.0;
 float LeftMotorStepsRemainder = 0.0;
-long Rightpresteps = 0;
-long Leftpresteps = 0;
+long RightAbsPos = 0;
+long LeftAbsPos = 0;
 
 struct PathPoint {
   float x;
@@ -305,7 +306,10 @@ void motorTask(void *parameter)
 void moveRobotAlongPath(JsonArray path) {
   // Determine the size of the path array
   size_t pathSize = path.size();
-  
+  int arrSize = (pathSize / smoothingVal) + 1;
+  int RightStepsArr[arrSize] = {0};
+  int LeftStepsArr[arrSize] = {0};
+
   // Allocate memory for the C++ array
   PathPoint* pathArray = new PathPoint[pathSize];
 
@@ -331,7 +335,7 @@ void moveRobotAlongPath(JsonArray path) {
   float distance = 0;
   angle0 = atan2((pathArray[1].x-pathArray[0].x) , (-pathArray[1].y+pathArray[0].y)); // adding pi to rotate the axes
 
-  for (i = 1; i < pathSize; i=i+8) { // Initialize i inside the loop i=i+smooth factor
+  for (i = 1; i < pathSize; i=i+smoothingVal) { // Initialize i inside the loop i=i+smooth factor
     Serial.print("i: ");
     Serial.println(i);
     float x = pathArray[i].x - pathArray[0].x; // centering x
@@ -358,7 +362,16 @@ void moveRobotAlongPath(JsonArray path) {
     Serial.println(angleDiff);
     Serial.println("distance");
     Serial.println(distance);
-    moveInArc(distance, angleDiff);
+
+    // Calculate steps for each motor
+    int RightMotorSteps = (int)(stepsPerMili * (distance - turnRadius * angleDiff));
+    RightMotorStepsRemainder += (stepsPerMili * (distance - turnRadius * angleDiff)) - RightMotorSteps;
+    RightStepsArr[i] = RightMotorSteps;
+
+    int LeftMotorSteps = (int)(stepsPerMili * (distance + turnRadius * angleDiff));
+    LeftMotorStepsRemainder += (stepsPerMili * (distance + turnRadius * angleDiff)) - LeftMotorSteps;
+    LeftStepsArr[i] = LeftMotorSteps;
+    
     //at the end of move in arc there shouldn't be an angle diff
 
     // Add yield to avoid watchdog timer resets
@@ -373,47 +386,48 @@ void moveRobotAlongPath(JsonArray path) {
     /*Serial.print("Y: ");    Serial.print(y);    Serial.print("Y Prev: ");    Serial.print(YPrev);    Serial.print("YPrevPrev: ");    Serial.println(YPrevPrev);    Serial.print("X: ");    Serial.print(x);    Serial.print("X Prev: ");    Serial.print(XPrev);    Serial.print("XPrevPrev: ");    Serial.println(XPrevPrev); //debugger*/
   }
 
+  int index = 0;
+  for (i = 1; i < pathSize; i=i+smoothingVal) { // Initialize i inside the loop i=i+smooth factor      
+    moveInArc(RightStepsArr, LeftStepsArr, index);
+    index++;
+  }  
+  index = 0;
   // Free the allocated memory
   delete[] pathArray;
 }
 
-void moveInArc(float distance, float angleDiff)
+void moveInArc(int rightSteps[], int leftSteps[], int index)
 {
-  // Calculate steps for each motor
-  int RightMotorSteps = (int)(stepsPerMili * (distance - turnRadius * angleDiff));
-  RightMotorStepsRemainder += (stepsPerMili * (distance - turnRadius * angleDiff)) - RightMotorSteps;
 
-  int LeftMotorSteps = (int)(stepsPerMili * (distance + turnRadius * angleDiff));
-  LeftMotorStepsRemainder += (stepsPerMili * (distance + turnRadius * angleDiff)) - LeftMotorSteps;
 
   // Move both motors
-//  stepperRight.moveTo(RightMotorSteps + Rightpresteps);
-//  stepperLeft.moveTo(-LeftMotorSteps - Leftpresteps);
+//  stepperRight.moveTo(RightMotorSteps + RightAbsPos);
+//  stepperLeft.moveTo(-LeftMotorSteps - LeftAbsPos);
 
 // Setting speed to make sure both motor arrive at target position at the same time
-  if (RightMotorSteps > LeftMotorSteps)
+  if (rightSteps[index] > leftSteps[index])
   {
-	stepperRight.setSpeed(baseSpeed);
-	stepperLeft.setSpeed((baseSpeed * LeftMotorSteps) / RightMotorSteps);
+    stepperRight.setSpeed(baseSpeed);
+    stepperLeft.setSpeed(-((baseSpeed * leftSteps[index]) / rightSteps[index]));
   }
   else
   {
-	stepperLeft.setSpeed(baseSpeed);
-	stepperRight.setSpeed((baseSpeed * RightMotorSteps) / LeftMotorSteps);	  	  
+    stepperLeft.setSpeed(baseSpeed);
+    stepperRight.setSpeed(-((baseSpeed * rightSteps[index]) / leftSteps[index]));
   }
   
   Serial.println("RightMotorSteps"); //debugger
-  Serial.println(RightMotorSteps + Rightpresteps);
+  Serial.println(rightSteps[index]);
   Serial.println("LeftMotorSteps");
-  Serial.println(-LeftMotorSteps - Leftpresteps);
+  Serial.println(leftSteps[index]);
   
-  Rightpresteps = RightMotorSteps + Rightpresteps;
-  Leftpresteps = LeftMotorSteps + Leftpresteps;
+  RightAbsPos = rightSteps[index] + RightAbsPos;
+  LeftAbsPos = -leftSteps[index] - LeftAbsPos;
   
-  //Serial.print("Rightpresteps: ");  //Serial.print(Rightpresteps);  //Serial.print(", Leftpresteps: ");  //Serial.println(Leftpresteps);
+  //Serial.print("RightAbsPos: ");  //Serial.print(RightAbsPos);  //Serial.print(", LeftAbsPos: ");  //Serial.println(LeftAbsPos);
 
 //  while (stepperRight.distanceToGo() != 0 || stepperLeft.distanceToGo() != 0)
-  while ((abs(stepperRight.currentPosition()) < abs(Rightpresteps)) || (abs(stepperLeft.currentPosition()) < abs(Leftpresteps)))
+  while ((abs(stepperRight.currentPosition()) < abs(RightAbsPos)) || (abs(stepperLeft.currentPosition()) < abs(LeftAbsPos)))
   {
     stepperRight.runSpeed();
     stepperLeft.runSpeed();
