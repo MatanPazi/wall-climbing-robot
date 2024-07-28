@@ -18,6 +18,7 @@ AccelStepper stepperLeft(motorInterfaceType, stepPinLeft, dirPinLeft);
 Servo myservo;
 
 const float wheelDiameter = 22.5;  // in mm
+const float baseSpeed = 200.0;  	// step per sec
 const int stepsPerRevolution = 23; // Assuming each motor has 23 steps per revolution
 const float gearReduction = 14.4;
 const float effectiveStepsPerRevolution = stepsPerRevolution * gearReduction;
@@ -27,8 +28,8 @@ const float turnRadius = 96.5 * Kturn;                       // in mm adjusted b
 const float turningCircumference = 2 * 3.14159 * turnRadius; // in mm
 float RightMotorStepsRemainder = 0.0;
 float LeftMotorStepsRemainder = 0.0;
-int Rightpresteps = 0;
-int Leftpresteps = 0;
+long Rightpresteps = 0;
+long Leftpresteps = 0;
 
 struct PathPoint {
   float x;
@@ -386,8 +387,20 @@ void moveInArc(float distance, float angleDiff)
   LeftMotorStepsRemainder += (stepsPerMili * (distance + turnRadius * angleDiff)) - LeftMotorSteps;
 
   // Move both motors
-  stepperRight.moveTo(RightMotorSteps + Rightpresteps);
-  stepperLeft.moveTo(-LeftMotorSteps - Leftpresteps);
+//  stepperRight.moveTo(RightMotorSteps + Rightpresteps);
+//  stepperLeft.moveTo(-LeftMotorSteps - Leftpresteps);
+
+// Setting speed to make sure both motor arrive at target position at the same time
+  if (RightMotorSteps > LeftMotorSteps)
+  {
+	stepperRight.setSpeed(baseSpeed);
+	stepperLeft.setSpeed((baseSpeed * LeftMotorSteps) / RightMotorSteps);
+  }
+  else
+  {
+	stepperLeft.setSpeed(baseSpeed);
+	stepperRight.setSpeed((baseSpeed * RightMotorSteps) / LeftMotorSteps);	  	  
+  }
   
   Serial.println("RightMotorSteps"); //debugger
   Serial.println(RightMotorSteps + Rightpresteps);
@@ -399,10 +412,11 @@ void moveInArc(float distance, float angleDiff)
   
   //Serial.print("Rightpresteps: ");  //Serial.print(Rightpresteps);  //Serial.print(", Leftpresteps: ");  //Serial.println(Leftpresteps);
 
-  while (stepperRight.distanceToGo() != 0 || stepperLeft.distanceToGo() != 0)
+//  while (stepperRight.distanceToGo() != 0 || stepperLeft.distanceToGo() != 0)
+  while ((abs(stepperRight.currentPosition()) < abs(Rightpresteps)) || (abs(stepperLeft.currentPosition()) < abs(Leftpresteps)))
   {
-    stepperRight.run();
-    stepperLeft.run();
+    stepperRight.runSpeed();
+    stepperLeft.runSpeed();
     //Serial.println(stepperRight.distanceToGo()); //debugger    //Serial.println(stepperLeft.distanceToGo());    yield();
     delay(1);
   }
