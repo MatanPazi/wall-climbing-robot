@@ -12,7 +12,7 @@
 #define servoPin 25
 
 #define motorInterfaceType 1
-
+//test
 AccelStepper stepperRight(motorInterfaceType, stepPinRight, dirPinRight);
 AccelStepper stepperLeft(motorInterfaceType, stepPinLeft, dirPinLeft);
 Servo myservo;
